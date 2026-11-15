@@ -69,14 +69,46 @@ class LGWebOSController(tv: DiscoveredTV, credentialStore: CredentialStore) : Ba
         return withTimeout(8_000) { deferred.await() }
     }
 
-    private suspend fun ensurePointer() {
-        if (pointerSocket != null) return
-        val response = request("ssap://com.webos.service.networkinput/getPointerInputSocket")
-        val path = response.optJSONObject("payload")?.optString("socketPath")
-            ?: response.optJSONObject("payload")?.optString("socket-path")
-            ?: throw IllegalStateException("The TV did not provide a pointer input socket")
-        pointerSocket = openWebSocket(path) { }
+    
+private suspend fun ensurePointer() {
+    if (pointerSocket != null) return
+
+    val response = request(
+        "ssap://com.webos.service.networkinput/getPointerInputSocket"
+    )
+
+    val payload = response.optJSONObject("payload")
+    val rawPath = payload?.optString("socketPath")
+        .orEmpty()
+        .ifBlank {
+            payload?.optString("socket-path").orEmpty()
+        }
+
+    if (rawPath.isBlank()) {
+        throw IllegalStateException(
+            "A TV não forneceu o endereço do controle."
+        )
     }
+
+    val pointerUrl = when {
+        rawPath.startsWith("ws://") ||
+        rawPath.startsWith("wss://") -> rawPath
+
+        rawPath.startsWith("https://") ->
+            rawPath.replaceFirst("https://", "wss://")
+
+        rawPath.startsWith("http://") ->
+            rawPath.replaceFirst("http://", "ws://")
+
+        rawPath.startsWith("/") ->
+            "ws://${tv.ip}:3000$rawPath"
+
+        else ->
+            "ws://${tv.ip}:3000/$rawPath"
+    }
+
+    pointerSocket = openWebSocket(pointerUrl) { }
+}
 
     override suspend fun sendKey(key: TVKey): Result<Unit> = runCatching {
         if (!connected) connect().getOrThrow()
