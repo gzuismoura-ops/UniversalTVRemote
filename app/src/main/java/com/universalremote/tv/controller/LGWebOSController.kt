@@ -20,13 +20,19 @@ class LGWebOSController(tv: DiscoveredTV, credentialStore: CredentialStore) : Ba
     private val sequence = AtomicInteger(1)
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
 
+    // Unsigned generic manifest: recent webOS firmware rejects legacy signed third-party
+    // manifests or grants only basic permissions. Mouse/keyboard permission is required
+    // for getPointerInputSocket and directional remote keys.
     private val manifestPermissions = JSONArray(listOf(
-        "LAUNCH", "LAUNCH_WEBAPP", "APP_TO_APP", "CLOSE", "CONTROL_AUDIO", "CONTROL_DISPLAY",
-        "CONTROL_INPUT_JOYSTICK", "CONTROL_INPUT_MEDIA_PLAYBACK", "CONTROL_INPUT_TV", "CONTROL_POWER",
-        "READ_APP_STATUS", "READ_CURRENT_CHANNEL", "READ_INPUT_DEVICE_LIST", "READ_NETWORK_STATE",
-        "READ_RUNNING_APPS", "READ_TV_CHANNEL_LIST", "READ_TV_CURRENT_CHANNEL", "READ_TV_PROGRAM_INFO",
-        "READ_INSTALLED_APPS", "READ_SETTINGS", "WRITE_SETTINGS", "WRITE_NOTIFICATION_TOAST",
-        "CONTROL_TV_SCREEN", "CONTROL_TV_STANDBY", "CONTROL_TV_POWER"
+        "LAUNCH", "LAUNCH_WEBAPP", "APP_TO_APP", "CLOSE", "TEST_OPEN", "TEST_PROTECTED",
+        "CONTROL_AUDIO", "CONTROL_DISPLAY", "CONTROL_INPUT_TEXT", "CONTROL_MOUSE_AND_KEYBOARD",
+        "CONTROL_INPUT_JOYSTICK", "CONTROL_INPUT_MEDIA_RECORDING", "CONTROL_INPUT_MEDIA_PLAYBACK",
+        "CONTROL_INPUT_TV", "CONTROL_POWER", "CONTROL_TV_SCREEN", "CONTROL_TV_STANDBY",
+        "CONTROL_TV_POWER", "READ_APP_STATUS", "READ_INSTALLED_APPS", "READ_CURRENT_CHANNEL",
+        "READ_INPUT_DEVICE_LIST", "READ_NETWORK_STATE", "READ_RUNNING_APPS", "READ_TV_CHANNEL_LIST",
+        "READ_TV_CURRENT_CHANNEL", "READ_TV_PROGRAM_INFO", "READ_POWER_STATE", "READ_COUNTRY_INFO",
+        "READ_SETTINGS", "READ_UPDATE_INFO", "WRITE_SETTINGS", "WRITE_NOTIFICATION_TOAST",
+        "WRITE_NOTIFICATION_ALERT"
     ))
 
     override suspend fun connect(): Result<Unit> = runCatching {
@@ -37,14 +43,15 @@ class LGWebOSController(tv: DiscoveredTV, credentialStore: CredentialStore) : Ba
             val payload = JSONObject()
                 .put("type", "register")
                 .put("id", "register_0")
-                .put("payload", JSONObject().put("manifest", JSONObject()
-                    .put("manifestVersion", 1)
-                    .put("appVersion", "1.1")
-                    .put("signed", JSONObject()
-                        .put("created", "20260101")
-                        .put("appId", "com.universalremote.tv")
-                        .put("vendorId", "com.universalremote"))
-                    .put("permissions", manifestPermissions)))
+                .put("payload", JSONObject()
+                    .put("forcePairing", false)
+                    .put("pairingType", "PROMPT")
+                    .put("manifest", JSONObject()
+                        .put("manifestVersion", 1)
+                        .put("appVersion", "1.2")
+                        // Do not include a fabricated signed identity. Recent webOS
+                        // versions require the requested permissions to be user-approved.
+                        .put("permissions", manifestPermissions)))
             credentialStore.getCredential(tv.ip, "clientKey")?.let {
                 payload.getJSONObject("payload").put("client-key", it)
             }
@@ -84,14 +91,25 @@ class LGWebOSController(tv: DiscoveredTV, credentialStore: CredentialStore) : Ba
             val id = json.optString("id")
             if (id.isNotBlank()) {
                 val waiter = pending.remove(id)
-                if (json.optString("type") == "error" || json.optJSONObject("payload")?.optBoolean("returnValue", true) == false) {
-                    waiter?.completeExceptionally(IllegalStateException(json.optString("error", "A TV recusou o comando")))
+                val payload = json.optJSONObject("payload")
+                val denied = json.optString("type") == "error" || payload?.optBoolean("returnValue", true) == false
+                if (denied) {
+                    val reason = json.optString("error")
+                        .ifBlank { payload?.optString("errorText").orEmpty() }
+                        .ifBlank { "A TV recusou o comando (permissão insuficiente)." }
+                    waiter?.completeExceptionally(IllegalStateException(reason))
                 } else waiter?.complete(json)
             }
         }
     }
 
-    override suspend fun pair(pin: String?): Result<Unit> = connect()
+    override suspend fun pair(pin: String?): Result<Unit> = runCatching {
+        // A key paired with the old, under-privileged manifest keeps the old grants.
+        // Remove it and force a fresh on-TV approval using the corrected manifest.
+        disconnect()
+        credentialStore.deleteCredential(tv.ip, "clientKey")
+        connect().getOrThrow()
+    }
 
     private suspend fun request(uri: String, payload: JSONObject = JSONObject()): JSONObject {
         if (!connected) connect().getOrThrow()

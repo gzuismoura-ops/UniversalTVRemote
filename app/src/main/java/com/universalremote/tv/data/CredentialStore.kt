@@ -58,6 +58,11 @@ class CredentialStore(context: Context) {
     }
 
     @Synchronized
+    fun deleteCredential(ip: String, key: String) {
+        prefs.edit().remove("$ip::$key").apply()
+    }
+
+    @Synchronized
     fun deleteTVCredentials(ip: String) {
         val editor = prefs.edit()
         prefs.all.keys.filter { it.startsWith("$ip::") }.forEach(editor::remove)

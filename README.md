@@ -30,3 +30,8 @@ O workflow `.github/workflows/build-apk.yml` compila `app:assembleDebug` quando 
 ## Testes necessários antes de considerar um modelo compatível
 
 Para cada marca/modelo/firmware, validar: descoberta, autorização, conexão persistente, setas, OK, voltar, home, volume, mute, canais, teclado numérico, mídia, aplicativos e reconexão após reiniciar a TV. Recursos não oferecidos pela API devem aparecer como indisponíveis, não como controles que aparentam funcionar.
+
+
+## LG webOS permission recovery (build 1.2)
+
+The LG registration now uses an unsigned generic manifest requesting `CONTROL_MOUSE_AND_KEYBOARD` and `CONTROL_INPUT_TEXT`, which are required by the pointer-input socket on affected recent firmware. Choosing Pair again deletes only this app's saved LG client key and requests a fresh approval on the TV. Accept the complete permission prompt on the television. This does not bypass TV security or guarantee support on every webOS model.
