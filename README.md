@@ -1,41 +1,32 @@
-# Universal TV Remote (Android)
+# Universal TV Remote — Android
 
-A Kotlin + Jetpack Compose Android project for discovering and controlling compatible TVs and media renderers on the same local network.
+Projeto Android em Kotlin + Jetpack Compose para descoberta e controle de TVs e dispositivos de mídia na rede local.
 
-## Included
+## O que este projeto é (e o que não é)
 
-- SSDP discovery for the requested DIAL, UPnP, LG webOS, Samsung and Roku targets, with UPnP device-description parsing.
-- Android NSD browsing for Google Cast, AirPlay and Android TV Remote service records.
-- Bounded `/24` TCP probing across the configured vendor ports and HTTP-based fingerprints.
-- AES-GCM credential encryption using an Android Keystore key and SharedPreferences metadata storage.
-- Working protocol paths for LG webOS SSAP, Samsung Tizen remote WebSocket, Sony Bravia IRCC, Roku ECP, Vizio SmartCast pairing/key commands, Panasonic Viera SOAP, Philips JointSpace HTTP, Chromecast DIAL app launch, and generic UPnP AVTransport/RenderingControl where the device description advertises those services.
-- Compose screens for scanning, pairing, remote control, saved devices, theme choice and Wake-on-LAN.
-- UDP Wake-on-LAN magic-packet transmission when a MAC address is available from the ARP table or saved metadata.
+Este aplicativo é um controle multi-protocolo. Ele **não consegue garantir controle de todos os modelos de TV**: fabricantes, gerações, regiões e versões de firmware expõem APIs diferentes. Algumas TVs exigem confirmação física na tela; outras desativam o controle de rede ou não oferecem comandos para canais, teclado ou aplicativos.
 
-## Important compatibility and security notes
+A detecção de um dispositivo ou de uma porta aberta não significa que todos os comandos são compatíveis.
 
-No Android application can control literally every Smart TV. Vendor APIs vary by model, region, firmware and settings; some TVs disable network control by default or require a vendor-specific authorization flow. Discovery is best-effort and a port being open is not proof that a device supports every command.
+## Protocolos presentes no projeto
 
-The Android TV controller deliberately reports that modern Android TV wireless pairing is not implemented. Current Android TV remote pairing uses a separate certificate-based protocol; a connection to TCP 5555 alone is not ADB authorization. This build can identify legacy ADB endpoints but does not send unauthenticated shell commands.
+- LG webOS: SSAP via WebSocket, registro com `client-key`, comandos de áudio/energia e canal de teclas por pointer socket. O registro agora aguarda a resposta `registered` antes de marcar a conexão como autorizada; o endereço do pointer socket é normalizado para `ws://` ou `wss://`.
+- Samsung Tizen: Remote Control WebSocket; autorização e disponibilidade variam conforme modelo/configuração.
+- Sony Bravia: IRCC-IP / APIs de rede; pode exigir Pre-Shared Key e configuração no aparelho.
+- Roku: ECP; algumas configurações e versões restringem controle por aplicativos móveis.
+- Vizio SmartCast, Panasonic Viera, Philips JointSpace: APIs específicas de cada família e firmware.
+- DLNA/UPnP: comandos de mídia/volume apenas quando o dispositivo anuncia os serviços correspondentes.
+- Chromecast DIAL: descoberta/lançamento de aplicativos compatíveis; não substitui um controle remoto completo.
+- Android TV / Google TV: a implementação ADB legada não equivale ao pareamento moderno por protocolo Android TV Remote. O pareamento moderno ainda precisa ser implementado para controle amplo dessas TVs.
 
-Philips Android TV firmware may require Digest Authentication. This project includes the JointSpace HTTP endpoints and PIN request/grant attempt, but does not claim support for every Digest-authenticated firmware variant. Chromecast DIAL is intentionally limited to app launching and limited volume calls; DIAL is not a full directional remote API. Generic DLNA exposes media and volume only when the device description contains standard AVTransport/RenderingControl service URLs.
+## Permissões e autorização
 
-Samsung WSS and Vizio HTTPS currently use a trust-all certificate manager to interoperate with self-signed TV certificates, as requested. This weakens TLS server authentication and should only be used on a trusted home network. Legacy vendor APIs also require cleartext HTTP, so the manifest explicitly enables cleartext traffic.
+O telefone e a TV devem estar na mesma rede local. Ative o controle por rede nas configurações da TV. Quando a TV exibir um pedido de autorização, confirme-o na própria televisão. Não há forma legítima de contornar o pareamento exigido pelo fabricante.
 
-Credentials are encrypted with AES-GCM and an Android Keystore key. AndroidX Security Crypto is not used because its `EncryptedSharedPreferences` API is deprecated in the current 1.1 line; this implementation keeps the requested SharedPreferences storage while avoiding that deprecated API.
+## Compilar APK no GitHub Actions
 
-## Build requirements
+O workflow `.github/workflows/build-apk.yml` compila `app:assembleDebug` quando há push na branch `main`/`master` ou execução manual. O APK fica no artefato `UniversalTVRemote-debug-apk`.
 
-- Android Studio with Android SDK Platform 35 installed.
-- JDK 17.
-- Internet access on the first Gradle sync so Gradle and Maven dependencies can be downloaded.
+## Testes necessários antes de considerar um modelo compatível
 
-The execution environment used to assemble this archive did not have an Android SDK or a preinstalled Gradle distribution and could not resolve external hosts, so `assembleDebug` could not be run here. The project files were statically reviewed, but an actual Android Studio/Gradle build remains required to verify the final APK against the installed SDK and device-specific network behavior.
-
-## Build & run instructions
-
-1. Extract this folder and open `UniversalTVRemote` in Android Studio.
-2. Install Android SDK Platform 35 and configure JDK 17 in Android Studio.
-3. Allow Gradle sync to download the Android Gradle Plugin and declared dependencies.
-4. Build the debug APK with `./gradlew assembleDebug` (Windows: `gradlew.bat assembleDebug`).
-5. Install `app/build/outputs/apk/debug/app-debug.apk`, connect the phone and TV to the same Wi-Fi network, then grant any Android network permissions requested by the OS.
+Para cada marca/modelo/firmware, validar: descoberta, autorização, conexão persistente, setas, OK, voltar, home, volume, mute, canais, teclado numérico, mídia, aplicativos e reconexão após reiniciar a TV. Recursos não oferecidos pela API devem aparecer como indisponíveis, não como controles que aparentam funcionar.
